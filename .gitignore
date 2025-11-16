@@ -1,0 +1,40 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go build folders
+/bin
+/build
+/dist
+
+# Dependency cache
+vendor/
+go.sum
+go.work
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Temporary
+*.tmp
+*.bak
