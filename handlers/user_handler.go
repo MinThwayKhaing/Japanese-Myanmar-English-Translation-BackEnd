@@ -53,29 +53,30 @@ func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 // ------------------- Login -------------------
 func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	log.Println("[DEBUG] Login endpoint called")
+
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Println("[ERROR] Failed to decode Login request:", err)
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Invalid request body",
+		})
 		return
 	}
 
 	token, user, err := h.service.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
-		log.Println("[ERROR] Login failed for email:", req.Email, "error:", err)
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": err.Error(), // "invalid credentials"
+		})
 		return
 	}
 
-	log.Println("[DEBUG] Login successful for email:", req.Email)
-	response := map[string]interface{}{
+	json.NewEncoder(w).Encode(map[string]interface{}{
 		"token":        token,
 		"role":         user.Role,
 		"subscription": user.Subscription,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	})
 }
 
 // ------------------- Change Password -------------------
