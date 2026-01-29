@@ -225,3 +225,19 @@ func (h *UserHandler) GetProfile(w http.ResponseWriter, r *http.Request, userID 
 	}
 	json.NewEncoder(w).Encode(user)
 }
+// ------------------- Delete Own Account -------------------
+func (h *UserHandler) DeleteMe(w http.ResponseWriter, r *http.Request, userID primitive.ObjectID) {
+	log.Println("[DEBUG] DeleteMe endpoint called for userID:", userID.Hex())
+
+	if err := h.service.DeleteUserByID(r.Context(), userID); err != nil {
+		log.Println("[ERROR] DeleteMe failed for userID:", userID.Hex(), "error:", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Println("[DEBUG] User deleted successfully:", userID.Hex())
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Account deleted successfully",
+	})
+}

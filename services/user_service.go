@@ -188,3 +188,23 @@ func (s *UserService) GetSubscribedUsers(ctx context.Context) ([]models.User, er
 func (s *UserService) GetUserByID(ctx context.Context, userID primitive.ObjectID) (*models.User, error) {
 	return s.repo.GetUserByID(ctx, userID)
 }
+// Delete user by ID (self-delete)
+func (s *UserService) DeleteUserByID(ctx context.Context, userID primitive.ObjectID) error {
+	log.Println("[DEBUG] DeleteUserByID called for userID:", userID.Hex())
+
+	// Check if user exists
+	_, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		log.Println("[ERROR] User not found:", err)
+		return errors.New("user not found")
+	}
+
+	// Delete user
+	if err := s.repo.DeleteUserByID(ctx, userID); err != nil {
+		log.Println("[ERROR] Failed to delete user:", err)
+		return err
+	}
+
+	log.Println("[DEBUG] User deleted from DB:", userID.Hex())
+	return nil
+}

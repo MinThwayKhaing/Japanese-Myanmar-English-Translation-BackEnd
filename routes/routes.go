@@ -60,6 +60,23 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config) {
 		userHandler.GetFavorites(w, r, userID)
 	})))
 
+	// Delete own account
+mux.Handle("DELETE /api/users/me", auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	claims := r.Context().Value(middleware.UserKey)
+	if claims == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	userID, err := extractUserIDFromClaims(claims)
+	if err != nil {
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	userHandler.DeleteMe(w, r, userID)
+})))
+
 	// Favorite management
 	mux.Handle("POST /api/users/favorites/add", auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims := r.Context().Value(middleware.UserKey)

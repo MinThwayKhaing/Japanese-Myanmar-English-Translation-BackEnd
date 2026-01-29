@@ -118,3 +118,10 @@ func (r *UserRepository) GetFavoritesPaginated(ctx context.Context, userID primi
 	hasMore := end < len(user.Favorites)
 	return words, hasMore, nil
 }
+func (r *UserRepository) DeleteUserByID(ctx context.Context, userID primitive.ObjectID) error {
+	_, err := db.Database.Collection("users").DeleteOne(
+		ctx,
+		bson.M{"_id": userID},
+	)
+	return err
+}
