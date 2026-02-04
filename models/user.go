@@ -27,7 +27,7 @@ const (
 type UserSubscription struct {
 	Status  SubscriptionStatus `bson:"status" json:"status"`
 	PlanID  primitive.ObjectID `bson:"planId" json:"planId"` // reference to subscriptionPlans
-	EndDate time.Time          `bson:"endDate" json:"endDate"`
+SearchesLeft int               `bson:"searchesLeft" json:"searchesLeft"` 
 }
 
 // User defines the user model

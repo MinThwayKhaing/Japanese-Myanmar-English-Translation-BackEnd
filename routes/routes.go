@@ -16,12 +16,11 @@ import (
 func RegisterRoutes(mux *http.ServeMux, cfg *config.Config) {
 	// ====== Services ======
 	userService := services.NewUserService(cfg)
-	subService := services.NewSubscriptionService() // ✅ no args
+
 
 	// ====== Handlers ======
 	wordHandler := handlers.NewWordHandler() // internally creates its own service
 	userHandler := handlers.NewUserHandler(userService)
-	subHandler := handlers.NewSubscriptionHandler(subService)
 
 	// ====== Middlewares ======
 	auth := middleware.AuthMiddleware(cfg)
@@ -34,8 +33,7 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config) {
 	mux.HandleFunc("POST /api/auth/register", userHandler.Register)
 	mux.HandleFunc("POST /api/auth/login", userHandler.Login)
 
-	// Subscription plans (publicly visible)
-	mux.HandleFunc("GET /api/subscriptions/prices", subHandler.GetPrices)
+
 
 	// ========== AUTHENTICATED ROUTES ==========
 	mux.Handle("PUT /api/users/password", auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +126,6 @@ mux.Handle("DELETE /api/users/me", auth(http.HandlerFunc(func(w http.ResponseWri
 	mux.Handle("POST /api/words/excel-upload", auth(http.HandlerFunc(wordHandler.ExcelCreateWords)))
 
 	mux.Handle("GET /api/users/subscribed", auth(http.HandlerFunc(userHandler.GetSubscribedUsers)))
-	mux.Handle("PUT /api/subscriptions/prices", auth(http.HandlerFunc(subHandler.UpdatePrices)))
 
 	// ===== Optional: Health Check =====
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {

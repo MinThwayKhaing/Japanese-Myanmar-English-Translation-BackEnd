@@ -50,6 +50,7 @@ func (s *UserService) Register(ctx context.Context, email, password string) (*mo
 		UpdatedAt: time.Now(),
 	}
 
+	
 	if err := s.repo.CreateUser(ctx, user); err != nil {
 		log.Println("[ERROR] Failed to create user:", err)
 		return nil, err

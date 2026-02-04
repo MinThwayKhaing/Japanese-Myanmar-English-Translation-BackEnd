@@ -9,9 +9,11 @@ import (
 	"USDT_BackEnd/config"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
 
 var Client *mongo.Client
 var Database *mongo.Database
@@ -82,29 +84,64 @@ func ensureCollectionsAndIndexes(ctx context.Context) {
 
 	// subscriptions: ensure one document only
 	subIdx := mongo.IndexModel{
-		Keys:    bson.D{{Key: "type", Value: 1}},
-		Options: options.Index().SetUnique(true).SetName("unique_type"),
+			Keys:    bson.D{{Key: "header", Value: 1}},
+		Options: options.Index().SetUnique(true).SetName("unique_header"),
 	}
 	_, _ = Database.Collection("subscriptions").Indexes().CreateOne(ctx, subIdx)
 
 	log.Println("✅ Collections and indexes verified/created.")
 }
-
 func seedInitialData(ctx context.Context) {
 	subscriptions := Database.Collection("subscriptions")
 
-	count, _ := subscriptions.CountDocuments(ctx, bson.D{})
+	// 🔥 FORCE REMOVE OLD FIELDS (migration)
+	_, err := subscriptions.UpdateMany(
+		ctx,
+		bson.M{}, // all docs
+		bson.M{
+			"$unset": bson.M{
+				"type":         "",
+				"monthlyPrice": "",
+				"yearlyPrice":  "",
+				"freeMonths":   "",
+			},
+			"$set": bson.M{
+				"header":       "Default",
+				"planId":       primitive.NilObjectID,
+				"searchesLeft": 1000,
+				"discount":     0,
+				"updatedAt":    time.Now(),
+			},
+			"$setOnInsert": bson.M{
+				"createdAt": time.Now(),
+			},
+		},
+	)
+
+	if err != nil {
+		log.Println("❌ Subscription migration failed:", err)
+		return
+	}
+
+	// 🔒 Ensure exactly ONE document exists
+	count, _ := subscriptions.CountDocuments(ctx, bson.M{})
 	if count == 0 {
-		initial := bson.M{
-			"type":         "default",
-			"monthlyPrice": 9.99,
-			"yearlyPrice":  99.99,
-			"freeMonths":   1,
+		_, err := subscriptions.InsertOne(ctx, bson.M{
+			"header":       "Default",
+			"planId":       primitive.NilObjectID,
+			"searchesLeft": 1000,
+			"discount":     0,
 			"createdAt":    time.Now(),
 			"updatedAt":    time.Now(),
-		}
-		if _, err := subscriptions.InsertOne(ctx, initial); err == nil {
-			log.Println("🌱 Seeded initial subscription data.")
+		})
+		if err != nil {
+			log.Println("❌ Insert default subscription failed:", err)
+			return
 		}
 	}
+
+	log.Println("🌱 Subscription schema migrated & ensured.")
 }
+
+
+
