@@ -14,7 +14,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-
 var Client *mongo.Client
 var Database *mongo.Database
 
@@ -43,7 +42,7 @@ func ConnectDB(cfg *config.Config) {
 }
 
 func ensureCollectionsAndIndexes(ctx context.Context) {
-	collections := []string{"users", "words", "subscriptions"}
+	collections := []string{"users", "words", "subscriptions", "password_otps"}
 
 	existing, _ := Database.ListCollectionNames(ctx, bson.D{})
 	existingMap := make(map[string]bool)
@@ -84,7 +83,7 @@ func ensureCollectionsAndIndexes(ctx context.Context) {
 
 	// subscriptions: ensure one document only
 	subIdx := mongo.IndexModel{
-			Keys:    bson.D{{Key: "header", Value: 1}},
+		Keys:    bson.D{{Key: "header", Value: 1}},
 		Options: options.Index().SetUnique(true).SetName("unique_header"),
 	}
 	_, _ = Database.Collection("subscriptions").Indexes().CreateOne(ctx, subIdx)
@@ -142,6 +141,3 @@ func seedInitialData(ctx context.Context) {
 
 	log.Println("🌱 Subscription schema migrated & ensured.")
 }
-
-
-

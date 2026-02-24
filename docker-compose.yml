@@ -1,0 +1,13 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${DOCKER_IMAGE:-minthwaykhaing/udt-translation}:${IMAGE_TAG:-ProductionVersion_1.01}
+    env_file:
+      - .env
+    environment:
+      PORT: ${PORT:-8085}
+    ports:
+      - "${HOST_PORT:-8085}:${PORT:-8085}"
+    restart: unless-stopped

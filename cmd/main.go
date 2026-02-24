@@ -3,6 +3,7 @@ package main
 import (
 	"USDT_BackEnd/config"
 	"USDT_BackEnd/db"
+	"USDT_BackEnd/middleware"
 	"USDT_BackEnd/routes"
 	"fmt"
 	"net/http"
@@ -15,6 +16,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	routes.RegisterRoutes(mux, cfg)
+	handler := middleware.AppVersionMiddleware(cfg)(mux)
 
 	// Optional: Serve static frontend
 	fileServer := http.FileServer(http.Dir("./web"))
@@ -27,5 +29,5 @@ func main() {
 	}
 
 	fmt.Printf("🚀 Server running at http://localhost:%s\n", port)
-	http.ListenAndServe(":"+port, mux)
+	http.ListenAndServe(":"+port, handler)
 }

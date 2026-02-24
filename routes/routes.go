@@ -17,25 +17,56 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config) {
 	// ====== Services ======
 	userService := services.NewUserService(cfg)
 
-
 	// ====== Handlers ======
-	wordHandler := handlers.NewWordHandler() // internally creates its own service
+	wordHandler := handlers.NewWordHandler(userService)
 	userHandler := handlers.NewUserHandler(userService)
 
 	// ====== Middlewares ======
 	auth := middleware.AuthMiddleware(cfg)
 
 	// ========== PUBLIC ROUTES ==========
-	mux.HandleFunc("GET /api/words/search", wordHandler.SearchWords)
-	mux.HandleFunc("GET /api/words/{id}", wordHandler.GetWordByID)
+
+	//Google OAuth
+	mux.HandleFunc("POST /api/auth/google/login", userHandler.GoogleLogin)
+	mux.HandleFunc("POST /api/auth/google/register", userHandler.GoogleRegister)
+	mux.HandleFunc("POST /api/auth/forgot-password", userHandler.ForgotPassword)
+	mux.HandleFunc("POST /api/auth/reset-password", userHandler.ResetPassword)
 
 	// User authentication
 	mux.HandleFunc("POST /api/auth/register", userHandler.Register)
 	mux.HandleFunc("POST /api/auth/login", userHandler.Login)
 
-
-
 	// ========== AUTHENTICATED ROUTES ==========
+
+	// Word search (authenticated + search limit)
+	mux.Handle("GET /api/words/search", auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims := r.Context().Value(middleware.UserKey)
+		if claims == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		userID, err := extractUserIDFromClaims(claims)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+		wordHandler.SearchWords(w, r, userID)
+	})))
+
+	mux.Handle("GET /api/words/{id}", auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims := r.Context().Value(middleware.UserKey)
+		if claims == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		userID, err := extractUserIDFromClaims(claims)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+		wordHandler.GetWordByID(w, r, userID)
+	})))
+
 	mux.Handle("PUT /api/users/password", auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims := r.Context().Value(middleware.UserKey)
 		if claims == nil {
@@ -43,7 +74,11 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config) {
 			return
 		}
 
-		userID, _ := extractUserIDFromClaims(claims)
+		userID, err := extractUserIDFromClaims(claims)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
 		userHandler.ChangePassword(w, r, userID)
 	})))
 
@@ -54,26 +89,45 @@ func RegisterRoutes(mux *http.ServeMux, cfg *config.Config) {
 			return
 		}
 
-		userID, _ := extractUserIDFromClaims(claims)
+		userID, err := extractUserIDFromClaims(claims)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
 		userHandler.GetFavorites(w, r, userID)
 	})))
 
+	// Link Google account
+	mux.Handle("PUT /api/users/link-google", auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims := r.Context().Value(middleware.UserKey)
+		if claims == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		userID, err := extractUserIDFromClaims(claims)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+		userHandler.LinkGoogle(w, r, userID)
+	})))
+
 	// Delete own account
-mux.Handle("DELETE /api/users/me", auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	claims := r.Context().Value(middleware.UserKey)
-	if claims == nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
+	mux.Handle("DELETE /api/users/me", auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims := r.Context().Value(middleware.UserKey)
+		if claims == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
 
-	userID, err := extractUserIDFromClaims(claims)
-	if err != nil {
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
-		return
-	}
+		userID, err := extractUserIDFromClaims(claims)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
 
-	userHandler.DeleteMe(w, r, userID)
-})))
+		userHandler.DeleteMe(w, r, userID)
+	})))
 
 	// Favorite management
 	mux.Handle("POST /api/users/favorites/add", auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +136,11 @@ mux.Handle("DELETE /api/users/me", auth(http.HandlerFunc(func(w http.ResponseWri
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		userID, _ := extractUserIDFromClaims(claims)
+		userID, err := extractUserIDFromClaims(claims)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
 		userHandler.SaveFavorite(w, r, userID)
 	})))
 	mux.Handle("GET /api/users/profile", auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +149,11 @@ mux.Handle("DELETE /api/users/me", auth(http.HandlerFunc(func(w http.ResponseWri
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		userID, _ := extractUserIDFromClaims(claims)
+		userID, err := extractUserIDFromClaims(claims)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
 		userHandler.GetProfile(w, r, userID)
 	})))
 	mux.Handle("DELETE /api/users/favorites/remove", auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +162,11 @@ mux.Handle("DELETE /api/users/me", auth(http.HandlerFunc(func(w http.ResponseWri
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		userID, _ := extractUserIDFromClaims(claims)
+		userID, err := extractUserIDFromClaims(claims)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
 		userHandler.RemoveFavorite(w, r, userID)
 	})))
 
@@ -110,7 +176,11 @@ mux.Handle("DELETE /api/users/me", auth(http.HandlerFunc(func(w http.ResponseWri
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		userID, _ := extractUserIDFromClaims(claims)
+		userID, err := extractUserIDFromClaims(claims)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
 		userHandler.GetFavoritesPaginated(w, r, userID)
 	})))
 
@@ -127,6 +197,14 @@ mux.Handle("DELETE /api/users/me", auth(http.HandlerFunc(func(w http.ResponseWri
 
 	mux.Handle("GET /api/users/subscribed", auth(http.HandlerFunc(userHandler.GetSubscribedUsers)))
 
+	// Admin: search users and update searches left
+	mux.Handle("GET /api/admin/users", auth(http.HandlerFunc(userHandler.GetAllUsers)))
+	mux.Handle("PUT /api/admin/users/searches-left", auth(http.HandlerFunc(userHandler.UpdateSearchesLeft)))
+
+	// Admin: duplicate words sync
+	mux.Handle("GET /api/admin/words/duplicates", auth(http.HandlerFunc(wordHandler.GetDuplicateWords)))
+	mux.Handle("PUT /api/admin/words/ignore", auth(http.HandlerFunc(wordHandler.SetWordIgnore)))
+
 	// ===== Optional: Health Check =====
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"status": "ok"}`))
@@ -136,6 +214,9 @@ mux.Handle("DELETE /api/users/me", auth(http.HandlerFunc(func(w http.ResponseWri
 // ========== Helpers ==========
 
 func extractUserIDFromClaims(claims interface{}) (primitive.ObjectID, error) {
+	if claims == nil {
+		return primitive.NilObjectID, errors.New("claims is nil")
+	}
 	if m, ok := claims.(jwt.MapClaims); ok {
 		if idVal, exists := m["user_id"]; exists {
 			if idStr, ok := idVal.(string); ok && idStr != "" {

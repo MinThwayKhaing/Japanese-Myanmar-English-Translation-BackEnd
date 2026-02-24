@@ -30,6 +30,10 @@ func NewUserService(cfg *config.Config) *UserService {
 func (s *UserService) Register(ctx context.Context, email, password string) (*models.User, error) {
 	log.Println("[DEBUG] Register called for email:", email)
 
+	if email == "" || password == "" {
+		return nil, errors.New("email and password are required")
+	}
+
 	existing, err := s.repo.GetUserByEmail(ctx, email)
 	if err == nil && existing != nil {
 		log.Println("[DEBUG] Email already exists:", email)
@@ -41,16 +45,22 @@ func (s *UserService) Register(ctx context.Context, email, password string) (*mo
 		return nil, err
 	}
 
-	hashed, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Println("[ERROR] Failed to hash password:", err)
+		return nil, errors.New("failed to process password")
+	}
 	user := &models.User{
-		Email:     email,
-		Password:  string(hashed),
-		Role:      models.RoleUser,
+		Email:    email,
+		Password: string(hashed),
+		Role:     models.RoleUser,
+		Subscription: models.UserSubscription{
+			SearchesLeft: s.config.DefaultSearchesLeft,
+		},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
 
-	
 	if err := s.repo.CreateUser(ctx, user); err != nil {
 		log.Println("[ERROR] Failed to create user:", err)
 		return nil, err
@@ -74,6 +84,10 @@ func (s *UserService) Login(ctx context.Context, email, password string) (string
 		}
 		log.Println("[ERROR] Failed to fetch user:", err)
 		return "", nil, err
+	}
+	if user == nil {
+		log.Println("[DEBUG] User is nil for:", email)
+		return "", nil, errors.New("invalid credentials")
 	}
 
 	// 2️⃣ Compare password
@@ -108,6 +122,10 @@ func (s *UserService) ChangePassword(ctx context.Context, userID primitive.Objec
 	if err != nil {
 		log.Println("[ERROR] User not found:", err)
 		return err
+	}
+	if user == nil {
+		log.Println("[ERROR] User is nil for userID:", userID.Hex())
+		return errors.New("user not found")
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(current)); err != nil {
@@ -189,6 +207,51 @@ func (s *UserService) GetSubscribedUsers(ctx context.Context) ([]models.User, er
 func (s *UserService) GetUserByID(ctx context.Context, userID primitive.ObjectID) (*models.User, error) {
 	return s.repo.GetUserByID(ctx, userID)
 }
+// CheckAndDecrementSearches verifies the user has searches left and decrements.
+// Admin users bypass the check entirely.
+func (s *UserService) CheckAndDecrementSearches(ctx context.Context, userID primitive.ObjectID) error {
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return errors.New("user not found")
+	}
+	if user.Role == models.RoleAdmin {
+		return nil
+	}
+	if user.Subscription.SearchesLeft <= 0 {
+		return errors.New("SEARCH_LIMIT_REACHED")
+	}
+	if err := s.repo.DecrementSearchesLeft(ctx, userID); err != nil {
+		return errors.New("SEARCH_LIMIT_REACHED")
+	}
+	return nil
+}
+
+// HasSearchesLeft checks if a user has searches remaining without decrementing.
+// Admin users always pass.
+func (s *UserService) HasSearchesLeft(ctx context.Context, userID primitive.ObjectID) error {
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return errors.New("user not found")
+	}
+	if user.Role == models.RoleAdmin {
+		return nil
+	}
+	if user.Subscription.SearchesLeft <= 0 {
+		return errors.New("SEARCH_LIMIT_REACHED")
+	}
+	return nil
+}
+
+// GetAllUsers searches users by email query.
+func (s *UserService) GetAllUsers(ctx context.Context, query string) ([]models.User, error) {
+	return s.repo.GetAllUsers(ctx, query)
+}
+
+// UpdateSearchesLeft sets a user's subscription.searchesLeft to the given count.
+func (s *UserService) UpdateSearchesLeft(ctx context.Context, userID primitive.ObjectID, count int) error {
+	return s.repo.UpdateSearchesLeft(ctx, userID, count)
+}
+
 // Delete user by ID (self-delete)
 func (s *UserService) DeleteUserByID(ctx context.Context, userID primitive.ObjectID) error {
 	log.Println("[DEBUG] DeleteUserByID called for userID:", userID.Hex())

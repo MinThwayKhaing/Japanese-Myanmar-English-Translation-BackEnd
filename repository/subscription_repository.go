@@ -33,7 +33,10 @@ func (r *SubscriptionRepository) GetByID(ctx context.Context, id primitive.Objec
 	var sub models.Subscription
 	err := db.Database.Collection("subscriptions").
 		FindOne(ctx, bson.M{"_id": id}).Decode(&sub)
-	return &sub, err
+	if err != nil {
+		return nil, err
+	}
+	return &sub, nil
 }
 
 func (r *SubscriptionRepository) GetAll(ctx context.Context) ([]models.Subscription, error) {

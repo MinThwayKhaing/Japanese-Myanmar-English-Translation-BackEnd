@@ -45,6 +45,11 @@ func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if user == nil {
+		log.Println("[ERROR] Register returned nil user for:", req.Email)
+		http.Error(w, "Registration failed", http.StatusInternalServerError)
+		return
+	}
 
 	log.Println("[DEBUG] User registered successfully:", req.Email)
 	json.NewEncoder(w).Encode(user)
@@ -69,6 +74,10 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{
 			"message": err.Error(), // "invalid credentials"
 		})
+		return
+	}
+	if user == nil {
+		http.Error(w, "Login failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -219,12 +228,82 @@ func (h *UserHandler) GetSubscribedUsers(w http.ResponseWriter, r *http.Request)
 }
 func (h *UserHandler) GetProfile(w http.ResponseWriter, r *http.Request, userID primitive.ObjectID) {
 	user, err := h.service.GetUserByID(r.Context(), userID)
-	if err != nil {
+	if err != nil || user == nil {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
 	json.NewEncoder(w).Encode(user)
 }
+
+// ------------------- Get All Users (Admin) -------------------
+func (h *UserHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	log.Println("[DEBUG] GetAllUsers endpoint called, query:", q)
+
+	users, err := h.service.GetAllUsers(r.Context(), q)
+	if err != nil {
+		log.Println("[ERROR] GetAllUsers failed:", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	type userResponse struct {
+		ID           string      `json:"id"`
+		Email        string      `json:"email"`
+		Subscription interface{} `json:"subscription"`
+	}
+	var resp []userResponse
+	for _, u := range users {
+		resp = append(resp, userResponse{
+			ID:           u.ID.Hex(),
+			Email:        u.Email,
+			Subscription: u.Subscription,
+		})
+	}
+	if resp == nil {
+		resp = []userResponse{}
+	}
+
+	log.Println("[DEBUG] Users fetched, count:", len(resp))
+	json.NewEncoder(w).Encode(resp)
+}
+
+// ------------------- Update Searches Left (Admin) -------------------
+func (h *UserHandler) UpdateSearchesLeft(w http.ResponseWriter, r *http.Request) {
+	log.Println("[DEBUG] UpdateSearchesLeft endpoint called")
+
+	var req struct {
+		UserID       string `json:"userId"`
+		SearchesLeft int    `json:"searchesLeft"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Println("[ERROR] Failed to decode UpdateSearchesLeft request:", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	userObjID, err := primitive.ObjectIDFromHex(req.UserID)
+	if err != nil {
+		log.Println("[ERROR] Invalid user ID format:", req.UserID)
+		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		return
+	}
+
+	if req.SearchesLeft < 0 {
+		http.Error(w, "searchesLeft cannot be negative", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.service.UpdateSearchesLeft(r.Context(), userObjID, req.SearchesLeft); err != nil {
+		log.Println("[ERROR] UpdateSearchesLeft failed:", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Println("[DEBUG] SearchesLeft updated for user:", req.UserID, "to:", req.SearchesLeft)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Searches left updated successfully"})
+}
+
 // ------------------- Delete Own Account -------------------
 func (h *UserHandler) DeleteMe(w http.ResponseWriter, r *http.Request, userID primitive.ObjectID) {
 	log.Println("[DEBUG] DeleteMe endpoint called for userID:", userID.Hex())

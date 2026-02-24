@@ -13,6 +13,7 @@ type Word struct {
 	Myanmar   string             `bson:"myanmar" json:"myanmar"`
 	English   string             `bson:"english" json:"english"`
 	ImageURL  string             `bson:"imageUrl,omitempty" json:"imageUrl,omitempty"`
+	Ignore    bool               `bson:"ignore" json:"ignore"`
 	CreatedAt time.Time          `bson:"createdAt" json:"createdAt"`
 	UpdatedAt time.Time          `bson:"updatedAt" json:"updatedAt"`
 }

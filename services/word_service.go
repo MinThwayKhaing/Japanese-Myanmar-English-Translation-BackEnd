@@ -6,6 +6,7 @@ import (
 
 	"USDT_BackEnd/models"
 	"USDT_BackEnd/repository"
+	"USDT_BackEnd/utils"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -22,7 +23,13 @@ func (s *WordService) SearchWords(ctx context.Context, query string) ([]models.W
 	if query == "" {
 		return nil, errors.New("query cannot be empty")
 	}
-	return s.repo.SearchWords(ctx, query)
+	var kanaQueries []string
+	if utils.IsRomaji(query) {
+		hiragana := utils.RomajiToHiragana(query)
+		katakana := utils.HiraganaToKatakana(hiragana)
+		kanaQueries = []string{hiragana, katakana}
+	}
+	return s.repo.SearchWords(ctx, query, kanaQueries)
 }
 
 func (s *WordService) GetWordByID(ctx context.Context, idStr string) (*models.Word, error) {
@@ -32,12 +39,18 @@ func (s *WordService) GetWordByID(ctx context.Context, idStr string) (*models.Wo
 	}
 	return s.repo.GetWordByID(ctx, id)
 }
-func (s *WordService) BulkCreateWords(ctx context.Context, words []models.Word) error {
+func (s *WordService) BulkCreateWords(ctx context.Context, words []models.Word) (int, error) {
 	return s.repo.BulkInsert(ctx, words)
 }
 
 func (s *WordService) GetAllWords(ctx context.Context, page, limit int, query string) ([]models.Word, bool, int64, error) {
-	return s.repo.GetAllWords(ctx, page, limit, query)
+	var kanaQueries []string
+	if utils.IsRomaji(query) {
+		hiragana := utils.RomajiToHiragana(query)
+		katakana := utils.HiraganaToKatakana(hiragana)
+		kanaQueries = []string{hiragana, katakana}
+	}
+	return s.repo.GetAllWords(ctx, page, limit, query, kanaQueries)
 }
 
 func (s *WordService) CreateWord(ctx context.Context, word *models.Word) error {
@@ -58,4 +71,24 @@ func (s *WordService) DeleteWord(ctx context.Context, idStr string) error {
 		return err
 	}
 	return s.repo.DeleteWord(ctx, id)
+}
+
+func (s *WordService) SetWordIgnore(ctx context.Context, idStr string, ignore bool) error {
+	id, err := primitive.ObjectIDFromHex(idStr)
+	if err != nil {
+		return err
+	}
+	return s.repo.SetWordIgnore(ctx, id, ignore)
+}
+
+func (s *WordService) GetDuplicateWords(ctx context.Context, page, limit int, query string) ([]interface{}, int64, error) {
+	results, total, err := s.repo.GetDuplicateWords(ctx, page, limit, query)
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]interface{}, len(results))
+	for i, r := range results {
+		out[i] = r
+	}
+	return out, total, nil
 }

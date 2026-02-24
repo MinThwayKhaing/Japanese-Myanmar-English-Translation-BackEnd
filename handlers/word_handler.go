@@ -3,6 +3,7 @@ package handlers
 import (
 	"USDT_BackEnd/models"
 	"USDT_BackEnd/services"
+	"context"
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
@@ -12,15 +13,18 @@ import (
 	"time"
 
 	"github.com/xuri/excelize/v2"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type WordHandler struct {
-	service *services.WordService
+	service     *services.WordService
+	userService *services.UserService
 }
 
-func NewWordHandler() *WordHandler {
+func NewWordHandler(userService *services.UserService) *WordHandler {
 	return &WordHandler{
-		service: services.NewWordService(),
+		service:     services.NewWordService(),
+		userService: userService,
 	}
 }
 
@@ -72,7 +76,7 @@ func (h *WordHandler) UpdateWord(w http.ResponseWriter, r *http.Request) {
 
 	// Get existing word (to know old image URL)
 	existingWord, err := h.service.GetWordByID(r.Context(), id)
-	if err != nil {
+	if err != nil || existingWord == nil {
 		http.Error(w, "Word not found", http.StatusNotFound)
 		return
 	}
@@ -124,8 +128,8 @@ func (h *WordHandler) DeleteWord(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	// Optional: delete image from DO
-	word, _ := h.service.GetWordByID(r.Context(), id)
-	if word.ImageURL != "" {
+	word, err := h.service.GetWordByID(r.Context(), id)
+	if err == nil && word != nil && word.ImageURL != "" {
 		storage := services.NewStorageService()
 		// Extract filename from URL
 		fileName := word.ImageURL[strings.LastIndex(word.ImageURL, "/")+1:]
@@ -145,14 +149,14 @@ func (h *WordHandler) DeleteWord(w http.ResponseWriter, r *http.Request) {
 func (h *WordHandler) SelectOneWord(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	word, err := h.service.GetWordByID(r.Context(), id)
-	if err != nil {
+	if err != nil || word == nil {
 		http.Error(w, "Word not found", http.StatusNotFound)
 		return
 	}
 	json.NewEncoder(w).Encode(word)
 }
 
-func (h *WordHandler) SearchWords(w http.ResponseWriter, r *http.Request) {
+func (h *WordHandler) SearchWords(w http.ResponseWriter, r *http.Request, userID primitive.ObjectID) {
 	query := r.URL.Query().Get("q")
 	words, err := h.service.SearchWords(r.Context(), query)
 	if err != nil {
@@ -162,7 +166,22 @@ func (h *WordHandler) SearchWords(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(words)
 }
 
-func (h *WordHandler) GetWordByID(w http.ResponseWriter, r *http.Request) {
+func (h *WordHandler) GetWordByID(w http.ResponseWriter, r *http.Request, userID primitive.ObjectID) {
+	// Check and decrement search limit
+	if err := h.userService.CheckAndDecrementSearches(r.Context(), userID); err != nil {
+		if err.Error() == "SEARCH_LIMIT_REACHED" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"code":    "SEARCH_LIMIT_REACHED",
+				"message": "Usage limit reached",
+			})
+			return
+		}
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	id := r.PathValue("id")
 	word, err := h.service.GetWordByID(r.Context(), id)
 	if err != nil {
@@ -224,10 +243,66 @@ func (h *WordHandler) GetAllWords(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// ------------------ DUPLICATE SYNC ------------------
+
+func (h *WordHandler) GetDuplicateWords(w http.ResponseWriter, r *http.Request) {
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page == 0 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit == 0 {
+		limit = 10
+	}
+	query := r.URL.Query().Get("q")
+
+	groups, totalGroups, err := h.service.GetDuplicateWords(r.Context(), page, limit, query)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get duplicates: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	hasMore := int64(page*limit) < totalGroups
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"groups":      groups,
+		"totalGroups": totalGroups,
+		"hasMore":     hasMore,
+		"currentPage": page,
+	})
+}
+
+// ------------------ IGNORE TOGGLE ------------------
+
+func (h *WordHandler) SetWordIgnore(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		WordID string `json:"wordId"`
+		Ignore bool   `json:"ignore"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.WordID == "" {
+		http.Error(w, "wordId is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.service.SetWordIgnore(r.Context(), req.WordID, req.Ignore); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to update word: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message": "Word updated",
+		"ignore":  req.Ignore,
+	})
+}
+
 // ------------------ EXCEL UPLOAD ------------------
 
 func (h *WordHandler) ExcelCreateWords(w http.ResponseWriter, r *http.Request) {
-	err := r.ParseMultipartForm(20 << 20) // 20MB for Excel
+	err := r.ParseMultipartForm(200 << 20) // 200MB for large Excel files
 	if err != nil {
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
@@ -244,42 +319,61 @@ func (h *WordHandler) ExcelCreateWords(w http.ResponseWriter, r *http.Request) {
 
 	words, err := parseExcelFile(file)
 	if err != nil {
-		http.Error(w, "Invalid Excel file", http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("Invalid Excel file: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	err = h.service.BulkCreateWords(r.Context(), words)
+	fmt.Printf("Parsed %d words from Excel, starting bulk insert...\n", len(words))
+
+	// Use a longer timeout for large inserts (10 minutes)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
+
+	inserted, err := h.service.BulkCreateWords(ctx, words)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to save words: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to save words (inserted %d/%d): %v", inserted, len(words), err), http.StatusInternalServerError)
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]string{
-		"message": fmt.Sprintf("%d words inserted successfully", len(words)),
+	fmt.Printf("Bulk insert complete: %d words inserted\n", inserted)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":  fmt.Sprintf("%d words inserted successfully", inserted),
+		"total":    inserted,
 	})
 }
 
-// Excel parsing helper
+// Excel parsing helper — uses row iterator for memory efficiency with large files
 func parseExcelFile(file multipart.File) ([]models.Word, error) {
 	f, err := excelize.OpenReader(file)
 	if err != nil {
 		return nil, err
 	}
+	defer f.Close()
 
 	sheet := f.GetSheetName(0)
-	rows, err := f.GetRows(sheet)
+	rowIter, err := f.Rows(sheet)
 	if err != nil {
 		return nil, err
 	}
+	defer rowIter.Close()
 
-	var words []models.Word
-	for i, row := range rows {
-		if i == 0 {
-			continue // skip header
+	words := make([]models.Word, 0, 1024)
+	isHeader := true
+
+	for rowIter.Next() {
+		if isHeader {
+			isHeader = false
+			continue // skip header row
 		}
 
-		// Ensure row has at least 5 columns (Kanji,Hiragana,English,Myanmar,ignore extra)
-		for len(row) < 5 {
+		row, err := rowIter.Columns()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read row: %w", err)
+		}
+
+		// Ensure row has at least 4 columns (Kanji,Hiragana,English,Myanmar)
+		for len(row) < 4 {
 			row = append(row, "")
 		}
 

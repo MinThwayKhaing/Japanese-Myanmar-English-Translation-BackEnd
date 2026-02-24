@@ -27,12 +27,16 @@ func AuthMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
 			token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
 				return []byte(cfg.JWTSecret), nil
 			})
-			if err != nil || !token.Valid {
+			if err != nil || token == nil || !token.Valid {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
 
-			claims := token.Claims.(jwt.MapClaims)
+			claims, ok := token.Claims.(jwt.MapClaims)
+			if !ok {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
 			ctx := context.WithValue(r.Context(), UserKey, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

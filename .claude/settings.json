@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh:*)",
+      "Bash(docker buildx build:*)",
+      "Bash(open:*)",
+      "Bash(docker info:*)",
+      "Read(//Users/min/Desktop/LogicNest/UST/Japanese-Myanmar-English-Translation-FrontEnd/**)"
+    ],
+    "additionalDirectories": [
+      "/Users/min/Desktop/LogicNest/UST/Japanese-Myanmar-English-Translation-FrontEnd/src/screens"
+    ]
+  }
+}
